@@ -19,8 +19,7 @@ const int relayPins[8] = {16, 17, 18, 19, 21, 22, 23, 25};
 #define I2S_SCK 33
 #define I2S_WS 26
 #define SAMPLE_RATE 16000
-// [CHANGED] Increase buffer size for better network efficiency (Turn OFF fix)
-#define CHUNK_BUFFER_SIZE 1024 
+#define CHUNK_BUFFER_SIZE 640 
 
 // --- MQTT Topics ---
 const char* mqtt_control_topic = "home/control";
@@ -38,6 +37,7 @@ PubSubClient client(espClient);
 
 // DFPlayer Object
 DFRobotDFPlayerMini mp3;
+// Dedicated serial object for DFPlayer
 HardwareSerial myDFSerial(1); 
 
 Preferences preferences;
@@ -136,7 +136,7 @@ void processControlMessage(const char* room, const char* relay, const char* stat
       snprintf(status_payload, sizeof(status_payload), "%s:%s:%s", room, relay, state);
       client.publish(mqtt_status_topic, status_payload);
       
-      // Play 2 for ON, 1 for OFF
+      // Play 2 for ON, 1 for OFF (As per your request)
       mp3.play(newState ? 2 : 1);
     }
   }
@@ -203,6 +203,7 @@ void setup() {
   Serial.begin(115200);
   
   // --- DFPLAYER SETUP ---
+  // Pins 4 (RX) and 5 (TX)
   myDFSerial.begin(9600, SERIAL_8N1, 4, 5);
   
   if (!mp3.begin(myDFSerial, false, true)) { 

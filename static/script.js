@@ -1,6 +1,30 @@
 document.addEventListener('DOMContentLoaded', () => {
     
-    // --- 1. OFFLINE ANIMATIONS ---
+    // --- 1. AUTOMATIC TIME SYNC (NEW) ---
+    function syncDeviceTime() {
+        // Only sync if not already done in this session (to save bandwidth)
+        if (sessionStorage.getItem('time_synced')) return;
+
+        const now = new Date();
+        // Format to: YYYY-MM-DD HH:MM:SS
+        const pad = (n) => String(n).padStart(2, '0');
+        const timeString = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+        
+        console.log("Syncing time to:", timeString);
+        fetch('/sync_time', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ time: timeString })
+        }).then(res => {
+            if(res.ok) {
+                console.log("Time synced successfully.");
+                sessionStorage.setItem('time_synced', 'true');
+            }
+        }).catch(console.error);
+    }
+    syncDeviceTime();
+
+    // --- 2. OFFLINE ANIMATIONS ---
     const observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
             if (entry.isIntersecting) {
@@ -11,8 +35,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
 
-
-    // --- 2. DARK MODE LOGIC ---
+    // --- 3. DARK MODE LOGIC ---
     const themeBtn = document.getElementById('theme-toggle');
     const body = document.body;
     
@@ -28,8 +51,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-
-    // --- 3. CUSTOM DEVICE NAME TOGGLE ---
+    // --- 4. CUSTOM DEVICE NAME TOGGLE ---
     window.toggleCustom = function(select, id) {
         const input = document.getElementById(id);
         if(input) {
@@ -42,11 +64,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-
-    // --- 4. DASHBOARD LOGIC (Index only) ---
+    // --- 5. DASHBOARD LOGIC (Index only) ---
     if(document.getElementById('control-panel')) {
-        
-        // A. Send Commands
         const sendCommand = (payload) => {
             fetch('/control', {
                 method: 'POST',
@@ -55,7 +74,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }).catch(console.error);
         };
 
-        // B. Relay Toggles
         document.querySelectorAll('.relay-toggle').forEach(toggle => {
             toggle.addEventListener('change', function() {
                 sendCommand({ 
@@ -66,21 +84,17 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
 
-        // C. Motion Toggles
         document.querySelectorAll('.motion-icon').forEach(icon => {
             icon.addEventListener('click', function() {
                 const room = this.dataset.room;
                 const relay = this.dataset.relay;
                 const isActive = this.classList.contains('active');
-                
                 this.classList.toggle('active');
                 sendCommand({ room, relay, motion_control: !isActive });
             });
         });
 
-        // D. Voice Command (Multi-Room Support)
         const micButtons = document.querySelectorAll('.push-to-talk');
-        
         micButtons.forEach(btn => {
             let mediaRecorder;
             let audioChunks = [];
@@ -103,12 +117,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     
                     mediaRecorder.onstop = () => {
                         const blob = new Blob(audioChunks);
-                        
                         fetch(`/process_browser_audio?room=${encodeURIComponent(roomName)}`, { 
-                            method: 'POST', 
-                            body: blob 
+                            method: 'POST', body: blob 
                         });
-                        
                         btn.classList.remove('listening');
                         if(micStatus) micStatus.innerHTML = `Tap to Speak`;
                         isRecording = false;
@@ -125,93 +136,40 @@ document.addEventListener('DOMContentLoaded', () => {
                     }, 4000); 
 
                 } catch (err) { 
-                    alert("Microphone access denied or not available."); 
-                    console.error(err); 
+                    alert("Microphone access denied."); 
                 }
             });
         });
 
-        // --- E. ADVANCED VOICE & STATUS UPDATES ---
-        
-        // 1. Voice Setup
         let availableVoices = [];
-
-        function loadVoices() {
-            availableVoices = window.speechSynthesis.getVoices();
-        }
-        
+        function loadVoices() { availableVoices = window.speechSynthesis.getVoices(); }
         loadVoices();
-        if (window.speechSynthesis.onvoiceschanged !== undefined) {
-            window.speechSynthesis.onvoiceschanged = loadVoices;
-        }
+        if (window.speechSynthesis.onvoiceschanged !== undefined) window.speechSynthesis.onvoiceschanged = loadVoices;
 
         function speakText(text) {
             if ('speechSynthesis' in window) {
-                // Clear any pending speech
                 window.speechSynthesis.cancel(); 
-                
                 const utterance = new SpeechSynthesisUtterance(text);
-                
-                // Priority for Google voices (Android)
                 const preferredVoice = availableVoices.find(voice => 
-                    voice.name === "Google US English" || 
-                    voice.name === "Google UK English Female" ||
-                    (voice.name.includes("Google") && voice.lang.includes("en")) ||
-                    voice.lang === "en-US" || 
-                    voice.lang === "en-GB"
+                    voice.name.includes("Google") && voice.lang.includes("en") || voice.lang === "en-US"
                 );
-
-                if (preferredVoice) {
-                    utterance.voice = preferredVoice;
-                }
-
-                utterance.rate = 1.0; 
-                utterance.pitch = 1.0; 
-                utterance.volume = 1.0;
-
-                // Timeout to prevent chopped start
-                setTimeout(() => {
-                    window.speechSynthesis.speak(utterance);
-                }, 50); 
+                if (preferredVoice) utterance.voice = preferredVoice;
+                setTimeout(() => { window.speechSynthesis.speak(utterance); }, 50); 
             }
         }
 
-        // 2. SSE Event Source
         function setupEventSource() {
             const eventSource = new EventSource("/status-stream");
-
             eventSource.onmessage = (e) => {
                 const data = JSON.parse(e.data);
-                
-                // Status Update
                 if (data.type === 'status_update') {
-                    const elementId = `switch-${data.room}-${data.relay}`;
-                    const toggle = document.getElementById(elementId);
-                    if (toggle) toggle.checked = (data.status === 'ON');
+                    const el = document.getElementById(`switch-${data.room}-${data.relay}`);
+                    if (el) el.checked = (data.status === 'ON');
                 }
-                
-                // Motion Update
-                if (data.type === 'motion_update') {
-                    const elementId = `motion-${data.room}-${data.relay}`;
-                    const icon = document.getElementById(elementId);
-                    if (icon) {
-                        if(data.motion_control) icon.classList.add('active');
-                        else icon.classList.remove('active');
-                    }
-                }
-
-                // Voice Feedback
-                if (data.type === 'voice_feedback') {
-                    speakText(data.text);
-                }
+                if (data.type === 'voice_feedback') speakText(data.text);
             };
-
-            eventSource.onerror = (e) => {
-                eventSource.close();
-                setTimeout(setupEventSource, 3000); 
-            };
+            eventSource.onerror = (e) => { eventSource.close(); setTimeout(setupEventSource, 3000); };
         }
-        
         setupEventSource();
     }
 });

@@ -9,12 +9,15 @@
 <body>
     <div class="container">
         <div class="text-center reveal">
-            <p style="text-transform:uppercase; letter-spacing:2px; font-size:12px; margin-bottom:5px;">Setup</p>
+            <p style="text-transform:uppercase; letter-spacing:2px; font-size:12px; margin-bottom:5px; color:var(--text-secondary);">Setup</p>
             <h2>Device <span>Hub</span></h2>
         </div>
 
-        <div class="text-center reveal" style="margin-bottom:40px; margin-top:20px;">
-            <a href="/" class="btn-link" style="display:inline; margin-right:20px;">Dashboard</a>
+        <div class="text-center reveal" style="margin: 30px 0 50px; display: flex; gap: 20px; justify-content: center; align-items: center;">
+            <a href="/" class="btn-link" style="font-size: 1.1rem; display: flex; align-items: center; gap: 5px;">
+                <svg viewBox="0 0 24 24" class="icon-svg"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+                Dashboard
+            </a>
             <a href="/add_room" class="btn-solid">Add New Room</a>
         </div>
 
@@ -40,31 +43,31 @@
                 </div>
                 {% endfor %}
             {% else %}
-                <div style="text-align:center; padding:30px; border:1px dashed var(--border-color); color:var(--text-secondary); grid-column: 1 / -1;">
-                    No unassigned devices found.
+                <div style="text-align:center; padding:30px; border:1px dashed var(--border-color); color:var(--text-secondary); grid-column: 1 / -1; border-radius: 12px;">
+                    No new devices found.
                 </div>
             {% endif %}
         </div>
 
-        <h3 class="reveal">Active Rooms</h3>
+        <h3 class="reveal" style="margin-top: 40px;">Active Rooms</h3>
         <div class="card-container reveal">
             {% for room_name, devices in device_states.items() %}
             <div class="item-card">
                 <div class="item-header">
                     <span>{{ room_name|replace('_', ' ')|title }}</span>
                     {% if room_name in device_room_map %}
-                        <svg class="icon-svg" style="color:var(--primary)" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                        <svg class="icon-svg" style="color:#28a745" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
                     {% else %}
                         <svg class="icon-svg" style="color:#ccc" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
                     {% endif %}
                 </div>
                 
                 <div style="display:flex; gap:10px; margin-top:20px;">
-                    <a href="{{ url_for('edit_room_form', room=room_name) }}" class="btn-sm" style="flex:1; text-align:center;">Edit</a>
+                    <a href="{{ url_for('edit_room_form', room=room_name) }}" class="btn-sm" style="flex:1; justify-content: center;">Edit</a>
                     {% if room_name in device_room_map %}
-                    <a href="{{ url_for('unbind_device_form', room=room_name) }}" class="btn-sm" style="flex:1; text-align:center;">Unbind</a>
+                    <a href="{{ url_for('unbind_device_form', room=room_name) }}" class="btn-sm" style="flex:1; justify-content: center;">Unbind</a>
                     {% endif %}
-                    <a href="{{ url_for('remove_room_form', room=room_name) }}" class="btn-sm" style="flex:1; text-align:center; color:var(--primary); border-color:var(--primary);">Remove</a>
+                    <a href="{{ url_for('remove_room_form', room=room_name) }}" class="btn-sm" style="flex:1; justify-content: center; color:#ff4444; border-color:#ff4444;">Remove</a>
                 </div>
             </div>
             {% endfor %}

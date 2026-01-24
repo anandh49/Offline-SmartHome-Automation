@@ -34,20 +34,20 @@
               {% endif %}
             {% endwith %}
 
-            <form action="/login" method="POST" style="background: var(--surface); padding: 30px; border-radius: 16px; box-shadow: var(--shadow-lg);">
+            <form action="/login" method="POST" style="background: var(--bg-card); padding: 30px; border-radius: 16px; box-shadow: var(--shadow); border: 1px solid var(--border-color);">
                 <div style="margin-bottom: 20px;">
                     <label style="display: block; margin-bottom: 8px; color: var(--text-secondary);">Username</label>
                     <input type="text" name="username" required 
-                           style="width: 100%; padding: 12px; background: var(--bg); border: 1px solid rgba(255,255,255,0.1); color: var(--text-primary); border-radius: 8px;">
+                           style="width: 100%; padding: 12px; background: var(--input-bg); border: 1px solid var(--primary); color: var(--text-main); border-radius: 8px; box-sizing: border-box;">
                 </div>
                 
                 <div style="margin-bottom: 30px;">
                     <label style="display: block; margin-bottom: 8px; color: var(--text-secondary);">Password</label>
                     <input type="password" name="password" required 
-                           style="width: 100%; padding: 12px; background: var(--bg); border: 1px solid rgba(255,255,255,0.1); color: var(--text-primary); border-radius: 8px;">
+                           style="width: 100%; padding: 12px; background: var(--input-bg); border: 1px solid var(--primary); color: var(--text-main); border-radius: 8px; box-sizing: border-box;">
                 </div>
 
-                <button type="submit" class="btn-hero" style="width: 100%; text-align: center; justify-content: center;">
+                <button type="submit" class="btn-submit" style="width: 100%;">
                     Login
                 </button>
             </form>
