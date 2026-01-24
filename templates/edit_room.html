@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Edit Room</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>body { display: flex; align-items: center; justify-content: center; min-height: 100vh; }</style>
+</head>
+<body>
+    <div class="form-card reveal">
+        <div class="text-center" style="margin-bottom:30px;">
+            <h2>Edit <span>Configuration</span></h2>
+        </div>
+        
+        {% if selected_room and selected_room in device_states %}
+        <form action="/edit_room" method="post">
+            <input type="hidden" name="original_room_name" value="{{ selected_room }}">
+            <input type="hidden" name="wake_word" value="{{ device_states[selected_room].get('wake_word', 'jarvis') }}">
+
+            <input type="text" class="form-control" name="new_room_name" value="{{ selected_room.replace('_', ' ')|title }}" placeholder="Room Name">
+
+            <h4 style="margin: 30px 0 15px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">Device Mapping</h4>
+
+            {% for i in range(1, 9) %}
+            {% set relay_key = 'relay' ~ i %}
+            {% set device_info = device_states[selected_room].get(relay_key, {}) %}
+            {% set current_label = device_info.get('label', '') %}
+            
+            <div class="relay-grid">
+                <span class="relay-label">#{{ i }}</span>
+                <select name="relay{{ i }}_select" class="form-select" onchange="toggleCustom(this, 'custom_{{ i }}')">
+                    {% for device in preset_devices %}
+                    <option value="{{ device }}" {% if device == current_label %}selected{% endif %}>{{ device }}</option>
+                    {% endfor %}
+                    <option value="Other" {% if current_label and current_label not in preset_devices %}selected{% endif %}>Custom...</option>
+                </select>
+                <input type="text" id="custom_{{ i }}" name="relay{{ i }}_custom" 
+                       class="form-control {% if not (current_label and current_label not in preset_devices) %}hidden{% endif %}" 
+                       value="{{ current_label if current_label not in preset_devices else '' }}" placeholder="Name">
+                <input type="checkbox" name="relay{{ i }}_motion" title="Motion?" {% if device_info.get('motion_control') %}checked{% endif %}>
+            </div>
+            {% endfor %}
+
+            <button type="submit" class="btn-submit" style="width:100%; margin-top:20px;">Update Room</button>
+            <a href="/devices" class="btn-cancel">Cancel</a>
+        </form>
+        {% else %}
+        <p class="text-center">Room not found. <a href="/devices">Go back</a>.</p>
+        {% endif %}
+    </div>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

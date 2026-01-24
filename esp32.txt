@@ -1,0 +1,263 @@
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <DFRobotDFPlayerMini.h> 
+#include <Preferences.h>
+#include <ArduinoJson.h>
+#include <driver/i2s.h>
+
+const char* ssid = "Smarthome-HUB";
+const char* password = "raspberry.connect";
+const char* mqtt_server = "10.42.0.1";
+
+const int relayPins[8] = {16, 17, 18, 19, 21, 22, 23, 25};
+#define PIR_PIN 27
+#define ACTIVE_LOW true
+
+// --- I2S Microphone ---
+#define I2S_PORT I2S_NUM_0
+#define I2S_SD 32
+#define I2S_SCK 33
+#define I2S_WS 26
+#define SAMPLE_RATE 16000
+// [CHANGED] Increase buffer size for better network efficiency (Turn OFF fix)
+#define CHUNK_BUFFER_SIZE 1024 
+
+// --- MQTT Topics ---
+const char* mqtt_control_topic = "home/control";
+const char* mqtt_discovery_topic = "home/device_discovery";
+const char* mqtt_assignment_topic = "home/room_assignment";
+const char* mqtt_config_topic_prefix = "home/config/";
+const char* mqtt_voice_audio_topic = "home/voice/audio/";
+const char* mqtt_voice_command_topic = "home/voice/command/";
+const char* mqtt_trigger_topic = "home/motion_trigger";
+const char* mqtt_status_topic = "home/status";
+const unsigned long DISCOVERY_INTERVAL = 30000;
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+// DFPlayer Object
+DFRobotDFPlayerMini mp3;
+HardwareSerial myDFSerial(1); 
+
+Preferences preferences;
+
+char device_id[20] = "";
+char room_id[20] = "unassigned";
+char config_topic[50] = "";
+unsigned long lastDiscoveryTime = 0;
+bool roomAssigned = false;
+
+// --- MOTION VARIABLES ---
+unsigned long lastTriggerTime = 0;
+const unsigned long TRIGGER_COOLDOWN = 2000;
+
+void sendDiscoveryMessage();
+void i2s_install();
+void i2s_setpin();
+
+void reconnect() {
+  while (!client.connected()) {
+    Serial.print("[MQTT] Connecting... ");
+    if (client.connect(device_id)) {
+      Serial.println("Connected!");
+      sendDiscoveryMessage();
+      client.subscribe(mqtt_control_topic);
+      client.subscribe(mqtt_assignment_topic);
+      client.subscribe(config_topic);
+      if (roomAssigned) {
+        client.publish((String(mqtt_voice_command_topic) + room_id).c_str(), "START");
+      }
+    } else {
+      Serial.print("Failed rc="); Serial.print(client.state());
+      Serial.println(" Retry in 5s");
+      delay(5000);
+    }
+  }
+}
+
+void send_audio_chunk() {
+    uint8_t chunk_buffer[CHUNK_BUFFER_SIZE];
+    size_t bytes_read = 0;
+    i2s_read(I2S_PORT, &chunk_buffer, CHUNK_BUFFER_SIZE, &bytes_read, pdMS_TO_TICKS(100));
+    if (bytes_read > 0) {
+        String audio_topic = String(mqtt_voice_audio_topic) + room_id;
+        client.publish(audio_topic.c_str(), chunk_buffer, bytes_read);
+    }
+}
+
+void handleConfig(byte* payload, unsigned int length) {
+    JsonDocument doc;
+    deserializeJson(doc, payload, length);
+    if (doc["action"] == "reset") {
+        for (int i = 0; i < 8; i++) {
+            digitalWrite(relayPins[i], ACTIVE_LOW ? HIGH : LOW);
+            preferences.putBool(("relay" + String(i)).c_str(), false);
+        }
+    }
+}
+
+void generateDeviceId() {
+  uint32_t chipId = 0;
+  for(int i=0; i<17; i=i+8) chipId |= ((ESP.getEfuseMac() >> (40 - i)) & 0xff) << i;
+  snprintf(device_id, sizeof(device_id), "esp32_%08X", chipId);
+  snprintf(config_topic, sizeof(config_topic), "%s%s", mqtt_config_topic_prefix, device_id);
+}
+
+void sendDiscoveryMessage() {
+  JsonDocument doc;
+  doc["device_id"] = device_id;
+  doc["type"] = "esp32_relay";
+  doc["relay_count"] = 8;
+  char jsonBuffer[128];
+  serializeJson(doc, jsonBuffer);
+  client.publish(mqtt_discovery_topic, jsonBuffer);
+}
+
+void processControlMessage(const char* room, const char* relay, const char* state) {
+  if (!room || !relay || !state || strcmp(room, room_id) != 0) return;
+
+  // --- PARTY MODE HANDLER ---
+  if (strcmp(relay, "party") == 0) {
+      Serial.println("!!! PARTY MODE ACTIVATED !!!");
+      mp3.play(5); // Play 0005.mp3
+      return;
+  }
+  // -------------------------
+
+  if (strncmp(relay, "relay", 5) == 0) {
+    int relayNum = atoi(relay + 5);
+    if (relayNum >= 1 && relayNum <= 8) {
+      bool newState = (strcmp(state, "ON") == 0);
+      digitalWrite(relayPins[relayNum - 1], newState ? (ACTIVE_LOW ? LOW : HIGH) : (ACTIVE_LOW ? HIGH : LOW));
+      preferences.putBool(("relay" + String(relayNum - 1)).c_str(), newState);
+      
+      char status_payload[50];
+      snprintf(status_payload, sizeof(status_payload), "%s:%s:%s", room, relay, state);
+      client.publish(mqtt_status_topic, status_payload);
+      
+      // Play 2 for ON, 1 for OFF
+      mp3.play(newState ? 2 : 1);
+    }
+  }
+}
+
+void callback(char* topic, byte* payload, unsigned int length) {
+  if (strcmp(topic, config_topic) == 0) { handleConfig(payload, length);
+    return; }
+  
+  char msg[length + 1];
+  memcpy(msg, payload, length);
+  msg[length] = '\0';
+  if (strcmp(topic, mqtt_assignment_topic) == 0) {
+    JsonDocument doc;
+    if (deserializeJson(doc, msg) == DeserializationError::Ok && strcmp(doc["device_id"], device_id) == 0) {
+      const char* received_room = doc["room_name"];
+      bool was_assigned = roomAssigned;
+      strncpy(room_id, received_room, sizeof(room_id) - 1);
+      room_id[sizeof(room_id) - 1] = '\0';
+      preferences.putString("room_name", room_id);
+      roomAssigned = (strcmp(room_id, "unassigned") != 0);
+      
+      if(roomAssigned && !was_assigned) {
+          client.publish((String(mqtt_voice_command_topic) + room_id).c_str(), "START");
+          Serial.println("[VOICE] Room assigned. Start audio.");
+          // Play Bind Sound (4)
+          mp3.play(4);
+      } else if (!roomAssigned && was_assigned) {
+          client.publish((String(mqtt_voice_command_topic) + room_id).c_str(), "END");
+          Serial.println("[VOICE] Room unassigned. Stop audio.");
+          // Play Unbind Sound (3)
+          mp3.play(3);
+      }
+    }
+    return;
+  }
+  if (strcmp(topic, mqtt_control_topic) == 0) {
+    char* room = strtok(msg, ":");
+    char* relay = strtok(NULL, ":");
+    char* state = strtok(NULL, ":");
+    processControlMessage(room, relay, state);
+  }
+}
+
+void i2s_install() {
+  i2s_config_t i2s_config = {
+      .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
+      .sample_rate = SAMPLE_RATE, .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
+      .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT, .communication_format = I2S_COMM_FORMAT_STAND_I2S,
+      .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1, .dma_buf_count = 8, .dma_buf_len = 256, .use_apll = false
+  };
+  i2s_driver_install(I2S_PORT, &i2s_config, 0, NULL);
+}
+
+void i2s_setpin() {
+  const i2s_pin_config_t pin_config = {
+      .bck_io_num = I2S_SCK, .ws_io_num = I2S_WS,
+      .data_out_num = I2S_PIN_NO_CHANGE, .data_in_num = I2S_SD
+  };
+  i2s_set_pin(I2S_PORT, &pin_config);
+}
+
+void setup() {
+  Serial.begin(115200);
+  
+  // --- DFPLAYER SETUP ---
+  myDFSerial.begin(9600, SERIAL_8N1, 4, 5);
+  
+  if (!mp3.begin(myDFSerial, false, true)) { 
+    Serial.println("DFPlayer Error: Check Wiring!");
+  } else {
+    Serial.println("DFPlayer Online.");
+    mp3.volume(25);
+    mp3.play(3); // Optional: Startup sound
+  }
+
+  preferences.begin("home_auto", false);
+  generateDeviceId(); 
+  preferences.getString("room_name", room_id, sizeof(room_id));
+  roomAssigned = (strcmp(room_id, "unassigned") != 0);
+  
+  for (int i = 0; i < 8; i++) {
+    pinMode(relayPins[i], OUTPUT);
+    digitalWrite(relayPins[i], preferences.getBool(("relay" + String(i)).c_str(), false) ? (ACTIVE_LOW ? LOW : HIGH) : (ACTIVE_LOW ? HIGH : LOW));
+  }
+  
+  pinMode(PIR_PIN, INPUT_PULLUP);
+
+  Serial.print("Connecting WiFi: "); Serial.println(ssid);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print(".");
+  }
+  Serial.println("\nWiFi Connected!");
+  
+  client.setServer(mqtt_server, 1883);
+  client.setBufferSize(2048);
+  client.setCallback(callback);
+  
+  i2s_install(); i2s_setpin(); i2s_start(I2S_PORT); i2s_zero_dma_buffer(I2S_PORT);
+}
+
+void loop() {
+  if (!client.connected()) reconnect();
+  client.loop();
+  
+  if (millis() - lastDiscoveryTime >= DISCOVERY_INTERVAL) {
+    sendDiscoveryMessage();
+    lastDiscoveryTime = millis();
+  }
+
+  if (roomAssigned) send_audio_chunk();
+  
+  if (digitalRead(PIR_PIN) == HIGH) {
+      if (millis() - lastTriggerTime > TRIGGER_COOLDOWN) {
+          Serial.println(">>> MOTION: Sending Trigger to Server...");
+          if (roomAssigned) {
+              client.publish(mqtt_trigger_topic, room_id);
+              lastTriggerTime = millis();
+          }
+      }
+  }
+  
+  delay(5);
+}

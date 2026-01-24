@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Unbind Device</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        body { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: rgba(33, 37, 41, 0.95); }
+        .modal { background: white; padding: 40px; border-radius: 16px; text-align: center; max-width: 400px; width: 90%; }
+    </style>
+</head>
+<body>
+    <div class="modal reveal">
+        <svg style="width:50px; height:50px; fill:#ce1212; margin-bottom:15px;" viewBox="0 0 24 24"><path d="M2 12C2 6.48 6.48 2 12 2s10 4.48 10 10-4.48 10-10 10S2 17.52 2 12zm11 3.59l3.29-3.29L14.88 10.88 13 12.76V8h-2v4.76l-1.88-1.88-1.41 1.41L11 15.59V8H7v9h10V8h-4v7.59z"/></svg>
+
+        <h2>Unbind Device</h2>
+        
+        <p style="color:#666; margin:0;">Disconnect hardware from:</p>
+        <h3 style="margin:10px 0; color:#333;">{{ room_name.replace('_', ' ')|title }}</h3>
+
+        <div style="background:#fff3cd; color:#856404; padding:15px; border-radius:8px; font-size:14px; margin:20px 0; text-align:left;">
+            <strong>Note:</strong> Room configuration is saved, but the physical device will stop responding.
+        </div>
+
+        <form method="post" action="/unassign_device">
+            <input type="hidden" name="room_name" value="{{ room_name }}">
+            <button type="submit" class="btn-unbind">Confirm Unbind</button>
+            <a href="/devices" class="btn-cancel">Cancel</a>
+        </form>
+    </div>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

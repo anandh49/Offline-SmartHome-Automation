@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Delete Room</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        body { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: rgba(33, 37, 41, 0.95); }
+        .modal { background: white; padding: 40px; border-radius: 16px; text-align: center; max-width: 400px; width: 90%; }
+        /* Override specific for this modal if needed, or rely on general styles */
+    </style>
+</head>
+<body>
+    <div class="modal reveal">
+        <svg style="width:50px; height:50px; fill:#ce1212; margin-bottom:15px;" viewBox="0 0 24 24"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+        
+        <h2>Delete Room</h2>
+        {% if rooms %}
+        <p style="color:#666; margin-bottom:25px;">Select a room to remove.<br>This action cannot be undone.</p>
+        <form method="post" action="/remove_room">
+            <select name="room_to_remove" class="form-select" required>
+                {% for room in rooms %}
+                <option value="{{ room }}">{{ room.replace('_', ' ')|title }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="btn-delete">Confirm Delete</button>
+            <a href="/devices" class="btn-cancel">Cancel</a>
+        </form>
+        {% else %}
+        <p>No rooms to delete.</p>
+        <a href="/devices" class="btn-cancel">Go Back</a>
+        {% endif %}
+    </div>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
