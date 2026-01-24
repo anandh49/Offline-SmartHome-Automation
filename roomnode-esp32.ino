@@ -19,7 +19,7 @@ const int relayPins[8] = {16, 17, 18, 19, 21, 22, 23, 25};
 #define I2S_SCK 33
 #define I2S_WS 26
 #define SAMPLE_RATE 16000
-#define CHUNK_BUFFER_SIZE 640 
+#define CHUNK_BUFFER_SIZE 1024 
 
 // --- MQTT Topics ---
 const char* mqtt_control_topic = "home/control";
@@ -37,11 +37,9 @@ PubSubClient client(espClient);
 
 // DFPlayer Object
 DFRobotDFPlayerMini mp3;
-// Dedicated serial object for DFPlayer
 HardwareSerial myDFSerial(1); 
 
 Preferences preferences;
-
 char device_id[20] = "";
 char room_id[20] = "unassigned";
 char config_topic[50] = "";
@@ -51,7 +49,6 @@ bool roomAssigned = false;
 // --- MOTION VARIABLES ---
 unsigned long lastTriggerTime = 0;
 const unsigned long TRIGGER_COOLDOWN = 2000;
-
 void sendDiscoveryMessage();
 void i2s_install();
 void i2s_setpin();
@@ -76,13 +73,24 @@ void reconnect() {
   }
 }
 
+// --- AUDIO SENDING WITH GAIN BOOST ---
 void send_audio_chunk() {
-    uint8_t chunk_buffer[CHUNK_BUFFER_SIZE];
     size_t bytes_read = 0;
-    i2s_read(I2S_PORT, &chunk_buffer, CHUNK_BUFFER_SIZE, &bytes_read, pdMS_TO_TICKS(100));
+    int16_t raw_buffer[CHUNK_BUFFER_SIZE / 2]; 
+    
+    i2s_read(I2S_PORT, &raw_buffer, CHUNK_BUFFER_SIZE, &bytes_read, pdMS_TO_TICKS(100));
+    
     if (bytes_read > 0) {
+        // Gain Boost 4x
+        for (int i = 0; i < bytes_read / 2; i++) {
+            int32_t amplified = raw_buffer[i] << 2; 
+            if (amplified > 32767) raw_buffer[i] = 32767;
+            else if (amplified < -32768) raw_buffer[i] = -32768;
+            else raw_buffer[i] = (int16_t)amplified;
+        }
+        
         String audio_topic = String(mqtt_voice_audio_topic) + room_id;
-        client.publish(audio_topic.c_str(), chunk_buffer, bytes_read);
+        client.publish(audio_topic.c_str(), (uint8_t*)raw_buffer, bytes_read);
     }
 }
 
@@ -116,14 +124,18 @@ void sendDiscoveryMessage() {
 
 void processControlMessage(const char* room, const char* relay, const char* state) {
   if (!room || !relay || !state || strcmp(room, room_id) != 0) return;
-
-  // --- PARTY MODE HANDLER ---
-  if (strcmp(relay, "party") == 0) {
-      Serial.println("!!! PARTY MODE ACTIVATED !!!");
-      mp3.play(5); // Play 0005.mp3
+  
+  // --- AUDIO HANDLER (FIXED) ---
+  if (strcmp(relay, "AUDIO") == 0) {
+      int songID = atoi(state);
+      Serial.print("Playing Atmosphere Track from Folder 02: "); Serial.println(songID);
+      
+      // FIX: Use playFolder(folderNum, fileNum)
+      // Folder 02, File 001.mp3 -> mp3.playFolder(2, 1);
+      mp3.playFolder(2, songID); 
       return;
   }
-  // -------------------------
+  // -----------------------------
 
   if (strncmp(relay, "relay", 5) == 0) {
     int relayNum = atoi(relay + 5);
@@ -136,8 +148,10 @@ void processControlMessage(const char* room, const char* relay, const char* stat
       snprintf(status_payload, sizeof(status_payload), "%s:%s:%s", room, relay, state);
       client.publish(mqtt_status_topic, status_payload);
       
-      // Play 2 for ON, 1 for OFF (As per your request)
-      mp3.play(newState ? 2 : 1);
+      // Play System Sounds from Folder 01
+      // Turned ON -> Folder 01/001.mp3
+      // Turned OFF -> Folder 01/002.mp3
+      mp3.playFolder(1, newState ? 1 : 2);
     }
   }
 }
@@ -162,13 +176,13 @@ void callback(char* topic, byte* payload, unsigned int length) {
       if(roomAssigned && !was_assigned) {
           client.publish((String(mqtt_voice_command_topic) + room_id).c_str(), "START");
           Serial.println("[VOICE] Room assigned. Start audio.");
-          // Play Bind Sound (4)
-          mp3.play(4);
+          // Play Bind Sound -> Folder 01/004.mp3
+          mp3.playFolder(1, 4);
       } else if (!roomAssigned && was_assigned) {
           client.publish((String(mqtt_voice_command_topic) + room_id).c_str(), "END");
           Serial.println("[VOICE] Room unassigned. Stop audio.");
-          // Play Unbind Sound (3)
-          mp3.play(3);
+          // Play Unbind Sound -> Folder 01/003.mp3
+          mp3.playFolder(1, 3);
       }
     }
     return;
@@ -203,19 +217,17 @@ void setup() {
   Serial.begin(115200);
   
   // --- DFPLAYER SETUP ---
-  // Pins 4 (RX) and 5 (TX)
   myDFSerial.begin(9600, SERIAL_8N1, 4, 5);
-  
   if (!mp3.begin(myDFSerial, false, true)) { 
     Serial.println("DFPlayer Error: Check Wiring!");
   } else {
     Serial.println("DFPlayer Online.");
     mp3.volume(25);
-    mp3.play(3); // Optional: Startup sound
+    mp3.playFolder(1, 4); // Optional: Startup sound (Bind sound)
   }
 
   preferences.begin("home_auto", false);
-  generateDeviceId(); 
+  generateDeviceId();
   preferences.getString("room_name", room_id, sizeof(room_id));
   roomAssigned = (strcmp(room_id, "unassigned") != 0);
   
@@ -242,14 +254,12 @@ void setup() {
 void loop() {
   if (!client.connected()) reconnect();
   client.loop();
-  
   if (millis() - lastDiscoveryTime >= DISCOVERY_INTERVAL) {
     sendDiscoveryMessage();
     lastDiscoveryTime = millis();
   }
 
   if (roomAssigned) send_audio_chunk();
-  
   if (digitalRead(PIR_PIN) == HIGH) {
       if (millis() - lastTriggerTime > TRIGGER_COOLDOWN) {
           Serial.println(">>> MOTION: Sending Trigger to Server...");
@@ -259,6 +269,5 @@ void loop() {
           }
       }
   }
-  
   delay(5);
 }
